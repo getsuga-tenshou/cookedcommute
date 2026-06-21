@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: raw
+    database: "{{ env_var('SNOWFLAKE_DATABASE', 'PARKPULSE') }}"
+    schema: RAW
+    description: "Landing tables loaded from ADLS/lake by COPY INTO."
+    tables:
+      - name: traffic_measurements
+        description: "Per-site NDW traffic intensity & speed, one row per poll."
+        loaded_at_field: ingested_at
+        config:
+          freshness:
+            warn_after: { count: 15, period: minute }
+            error_after: { count: 60, period: minute }
+      - name: parking_snapshots
+        description: "Per-facility Amsterdam parking snapshot, one row per poll."
+        loaded_at_field: ingested_at
+        config:
+          freshness:
+            warn_after: { count: 60, period: minute }
+            error_after: { count: 240, period: minute }
+      - name: city_traffic
+        description: "Per-point TomTom city-road congestion samples."
+        loaded_at_field: ingested_at

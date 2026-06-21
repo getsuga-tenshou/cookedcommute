@@ -1,0 +1,15 @@
+# Reads connection details from environment variables only (no secrets committed).
+parkpulse:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', '') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'PARKPULSE_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'PARKPULSE_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'PARKPULSE') }}"
+      schema: ANALYTICS
+      threads: 4
+      client_session_keep_alive: false

@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Ruff (lint)
+        run: ruff check .
+      - name: Pytest (parsers + logic)
+        run: pytest -q
+
+  dbt-validate:
+    runs-on: ubuntu-latest
+    env: # dummy creds: dbt parse renders profiles.yml but does not connect
+      SNOWFLAKE_ACCOUNT: dummy
+      SNOWFLAKE_USER: dummy
+      SNOWFLAKE_PASSWORD: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install dbt-core dbt-snowflake
+      - name: dbt deps + parse (compiles project, no warehouse needed)
+        working-directory: dbt
+        run: |
+          dbt deps
+          dbt parse --profiles-dir .

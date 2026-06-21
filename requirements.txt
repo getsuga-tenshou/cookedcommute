@@ -1,0 +1,25 @@
+# --- Ingestion ---
+requests>=2.31
+lxml>=5.0
+python-dotenv[cli]>=1.0   # also gives the `dotenv` command (used to run dbt)
+pandas>=2.1
+pyarrow>=14.0
+azure-storage-file-datalake>=12.14   # land raw to ADLS Gen2
+azure-identity>=1.16                 # managed-identity upload (Functions)
+
+# --- Warehouse (Snowflake) ---
+snowflake-connector-python[pandas]>=3.7
+
+# --- Transform ---
+dbt-core>=1.7
+dbt-snowflake>=1.7
+
+# --- Dashboard ---
+streamlit>=1.36
+folium>=0.16
+streamlit-folium>=0.21
+streamlit-geolocation>=0.0.10
+
+# --- Dev / quality ---
+pytest>=8.0
+ruff>=0.5
