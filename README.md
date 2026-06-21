@@ -29,6 +29,3 @@ views → a **Streamlit + Folium** dashboard reads them live.
 | Dashboard | Streamlit + Folium (Leaflet) + TomTom map tiles |
 | Quality / CI | pytest, ruff, GitHub Actions |
 
-## License
-
-MIT — see `LICENSE`.
