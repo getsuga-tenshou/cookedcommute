@@ -7,7 +7,8 @@ data pipeline. It shows live traffic flow on every street, measured congestion f
 national sensor network, active road incidents, and the nearest parking — refreshed
 hands-free on a schedule.
 
-<!-- TODO: add a dashboard screenshot here, e.g. ![dashboard](docs/screenshot.png) -->
+<img width="1279" height="586" alt="image" src="https://github.com/user-attachments/assets/8af46b13-a8be-4a82-9759-825c1481114d" />
+
 
 ## What it does
 
@@ -51,7 +52,6 @@ flowchart LR
 5. **Dashboard** — **FastAPI** serves GeoJSON endpoints (and proxies the TomTom tiles so the
    API key stays server-side) to a **MapLibre GL** frontend.
 
-A full step-by-step walkthrough is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Tech stack
 
@@ -100,12 +100,3 @@ uvicorn backend.api:app --reload                   # dashboard at http://localho
 
 Cloud setup (Snowflake objects, Azure infra, Function deploy) lives in `snowflake/`,
 `infra/`, and `azure_functions/`.
-
-## Notes
-
-- **Secrets never leave your machine** — `.env`, Terraform state, and the RSA key are
-  git-ignored. Snowflake uses key-pair auth; the Functions use managed identity.
-- **TomTom free tier** — flow tiles draw on the 50k/day tile bucket, incidents on the
-  2,500/day non-tile bucket; the tile proxy caches ~60s.
-- **Snowflake credits** — the load task wakes an XS warehouse every 5 min; suspend it
-  (`ALTER TASK RAW.LOAD_RAW SUSPEND`) when idle.
