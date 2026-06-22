@@ -13,7 +13,7 @@ from typing import Optional
 
 from . import sinks, synthetic
 from .config import Settings, load_settings
-from .sources import ams_parking, ndw_traffic, tomtom_flow
+from .sources import ams_parking, ndw_traffic
 
 log = logging.getLogger("parkpulse.ingest")
 
@@ -96,23 +96,9 @@ def ingest_parking(settings: Settings) -> int:
     return len(rows)
 
 
-def ingest_citytraffic(settings: Settings) -> int:
-    """City-road congestion from TomTom (rate-limited: ~100 calls per run)."""
-    if settings.use_synthetic:
-        return 0
-    try:
-        rows = tomtom_flow.get_city_traffic(settings)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("TomTom city-flow failed (%s)", exc)
-        rows = []
-    sinks.land(settings, "citytraffic", rows)
-    return len(rows)
-
-
 def run_once(settings: Settings, traffic: bool = True, parking: bool = True) -> None:
     if traffic:
         log.info("traffic: landed %d rows", ingest_traffic(settings))
-        log.info("city-traffic: landed %d rows", ingest_citytraffic(settings))
     if parking:
         log.info("parking: landed %d rows", ingest_parking(settings))
 

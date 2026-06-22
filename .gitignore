@@ -7,24 +7,23 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
-# Env / secrets
+# Secrets — NEVER commit
 .env
 *.local
-rsa_key.p8
-rsa_key.pub
 *.p8
+rsa_key.pub
 
 # Data lake (raw landing) & local artifacts
 lake/
 *.gz
-sample_data/*.live.json
+sample_data/
 
-# dbt (profiles.yml is committed but reads only env vars — no secrets)
+# dbt build artifacts
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
 
-# Terraform
+# Terraform — commit the IaC (*.tf), ignore state & secrets
 infra/.terraform/
 *.tfstate
 *.tfstate.*
@@ -32,26 +31,19 @@ infra/.terraform/
 !*.tfvars.example
 crash.log
 
+# Azure Functions — commit the function defs, ignore local settings & the copied package
+azure_functions/local.settings.json
+azure_functions/ingestion/
+azure_functions/.python_packages/
+
+# Personal / deprecated (not part of the product)
+PROJECT_PLAN.md
+docs/
+db/
+docker-compose.yml
+RESUME_NOTES.md
+
 # OS / editor
 .DS_Store
 .idea/
 .vscode/
-
-# --- Not pushed to the public repo (setup/creation scripts, sample data, cloud-only, personal) ---
-# Snowflake setup DDL (01/02/03 — create DB, warehouse, tables, views, stages)
-snowflake/
-# Key-pair setup helper (generates the RSA key)
-scripts/gen_snowflake_key.py
-# Sample / captured data
-sample_data/
-# Terraform (cloud path only)
-infra/
-# Azure Functions (cloud path only)
-azure_functions/
-# Runbook + architecture notes (personal)
-docs/
-# Planning / business-case doc (personal)
-PROJECT_PLAN.md
-# Deprecated Postgres-era leftovers (superseded by Snowflake)
-db/
-docker-compose.yml

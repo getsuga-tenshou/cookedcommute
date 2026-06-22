@@ -30,12 +30,6 @@ _DATASETS = {
         "SELECT $1:garage_id::string, $1:name::string, $1:lat::float, $1:lon::float, "
         "$1:free_spaces::number, $1:capacity::number, $1:state::string, $1:measured_at::timestamp_tz",
     ),
-    "citytraffic": (
-        "RAW.CITY_TRAFFIC",
-        "(point_id, lat, lon, current_speed, freeflow_speed, congestion_ratio, frc, measured_at)",
-        "SELECT $1:point_id::string, $1:lat::float, $1:lon::float, $1:current_speed::float, "
-        "$1:freeflow_speed::float, $1:congestion_ratio::float, $1:frc::string, $1:measured_at::timestamp_tz",
-    ),
 }
 
 

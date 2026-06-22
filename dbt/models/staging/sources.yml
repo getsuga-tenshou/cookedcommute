@@ -20,6 +20,3 @@ sources:
           freshness:
             warn_after: { count: 60, period: minute }
             error_after: { count: 240, period: minute }
-      - name: city_traffic
-        description: "Per-point TomTom city-road congestion samples."
-        loaded_at_field: ingested_at

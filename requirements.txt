@@ -14,11 +14,9 @@ snowflake-connector-python[pandas]>=3.7
 dbt-core>=1.7
 dbt-snowflake>=1.7
 
-# --- Dashboard ---
-streamlit>=1.36
-folium>=0.16
-streamlit-folium>=0.21
-streamlit-geolocation>=0.0.10
+# --- Dashboard API (FastAPI serves the MapLibre frontend + proxies TomTom tiles) ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
 
 # --- Dev / quality ---
 pytest>=8.0

@@ -1,0 +1,5 @@
+azure-functions
+requests>=2.31
+lxml>=5.0
+azure-storage-file-datalake>=12.14
+azure-identity>=1.16

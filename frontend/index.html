@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CookedCommute — Amsterdam</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: "class" };</script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .glass { background: rgba(255,255,255,0.72); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
+  .dark .glass { background: rgba(24,24,27,0.62); }
+  .seg { transition: all .18s ease; }
+  #panel { transition: opacity .2s ease; }
+  .maplibregl-popup-content { border-radius: 14px; padding: 10px 14px; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.14); }
+  .dark .maplibregl-popup-content { background: #18181b; color: #e4e4e7; }
+  .dark .maplibregl-popup-tip { border-top-color: #18181b; border-bottom-color: #18181b; }
+  /* Current-location indicator: a 3D map pin (with a person). DOM marker, survives theme swaps.
+     NB: MapLibre sets transform on the marker element for positioning, so the float
+     animation goes on the inner <svg>, never on .cc-loc itself. */
+  .cc-loc { width: 36px; height: 48px; cursor: default; filter: drop-shadow(0 4px 3px rgba(0,0,0,.35)); }
+  .cc-loc svg { display: block; width: 36px; height: 48px; transform-origin: 50% 100%; animation: cc-bob 2.8s ease-in-out infinite; }
+  @keyframes cc-bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-2.5px); }
+  }
+  /* Incident markers: a warning triangle — deliberately a different shape from the
+     flow road colours, so an incident never reads as just a jammed road. */
+  .cc-inc { width: 26px; height: 26px; cursor: pointer; filter: drop-shadow(0 2px 2px rgba(0,0,0,.3)); }
+  .cc-inc svg { display: block; width: 26px; height: 26px; }
+</style>
+</head>
+<body class="bg-neutral-100 text-neutral-800 dark:bg-neutral-900 dark:text-neutral-100 overflow-hidden">
+  <div id="map"></div>
+
+  <div class="fixed top-4 left-1/2 -translate-x-1/2 z-10 glass rounded-2xl shadow-lg border border-white/60 dark:border-white/10 pl-3 pr-2 py-2 flex items-center gap-4">
+    <div class="flex items-center gap-2 font-semibold tracking-tight">
+      <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-red-500 text-white text-lg shadow-sm">🔥</span>
+      <span>CookedCommute</span>
+    </div>
+    <div id="toggle" class="flex items-center gap-1 bg-neutral-200/70 dark:bg-white/10 rounded-xl p-1 text-sm"></div>
+  </div>
+
+  <div id="panel" class="fixed bottom-5 left-5 z-10 glass rounded-2xl shadow-xl border border-white/60 dark:border-white/10 p-4 w-[320px]"></div>
+
+  <div id="theme" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-10 glass rounded-xl shadow-lg border border-white/60 dark:border-white/10 p-1 flex text-sm"></div>
+
+<script>
+const AMS = [4.9041, 52.3676];
+const LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const inAms = (lat, lon) => lat > 52.0 && lat < 52.6 && lon > 4.5 && lon < 5.3;
+
+let view = "traffic";
+let showTraffic = true, showIncidents = true;   // map-layer filter (Traffic / Incidents)
+let dark = localStorage.getItem("cc-theme") === "dark";   // restore last choice
+document.documentElement.classList.toggle("dark", dark);
+
+let currentLoc = [4.9003, 52.3791];   // Amsterdam Centraal until GPS refines it
+let locMarker = null;
+let incMarkers = [];
+const incPopup = new maplibregl.Popup({ closeButton: false, offset: 16 });
+let trafficGeo = { type: "FeatureCollection", features: [] };
+let parkingGeo = { type: "FeatureCollection", features: [] };
+let incidentsGeo = { type: "FeatureCollection", features: [] };
+
+async function loadData() {
+  try {
+    const [t, p, inc] = await Promise.all([
+      fetch("/api/traffic").then((r) => r.json()),
+      fetch("/api/parking").then((r) => r.json()),
+      fetch("/api/incidents").then((r) => r.json()),
+    ]);
+    if (t && t.features) trafficGeo = t;
+    if (p && p.features) parkingGeo = p;
+    if (inc && inc.features) incidentsGeo = inc;
+  } catch (e) { console.warn("API not reachable", e); }
+}
+
+const map = new maplibregl.Map({ container: "map", style: dark ? DARK : LIGHT, center: AMS, zoom: 12.2, attributionControl: false });
+map.addControl(new maplibregl.AttributionControl({ compact: true }));
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+function addDataLayers() {
+  // TomTom live flow tiles -> every road coloured by speed-vs-free-flow (incl. closures).
+  // Proxied via /api/flow so the key stays server-side; style follows the theme.
+  if (!map.getSource("flow")) {
+    map.addSource("flow", { type: "raster", tileSize: 512,
+      tiles: [`/api/flow/${dark ? "relative0-dark" : "relative0"}/{z}/{x}/{y}`] });
+    map.addLayer({ id: "flow", type: "raster", source: "flow", paint: { "raster-opacity": 0.85 } });
+  }
+  // NDW sensors -> measured congestion heat on the major network (the warehouse data).
+  if (map.getSource("traffic")) { map.getSource("traffic").setData(trafficGeo); }
+  else {
+    map.addSource("traffic", { type: "geojson", data: trafficGeo });
+    map.addLayer({ id: "traffic-heat", type: "heatmap", source: "traffic",
+      filter: ["==", ["get", "kind"], "ndw"], paint: {
+      "heatmap-weight": ["interpolate", ["linear"], ["get", "congestion"], 0, 0, 1, 1],
+      "heatmap-intensity": 1.1, "heatmap-radius": 26, "heatmap-opacity": 0.7,
+      "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"],
+        0, "rgba(0,0,0,0)", 0.2, "#22c55e", 0.5, "#f59e0b", 0.8, "#ef4444", 1, "#b91c1c"] } });
+  }
+  if (map.getSource("parking")) { map.getSource("parking").setData(parkingGeo); }
+  else {
+    map.addSource("parking", { type: "geojson", data: parkingGeo });
+    map.addLayer({ id: "parking-dots", type: "circle", source: "parking", layout: { visibility: "none" }, paint: {
+      "circle-radius": ["interpolate", ["linear"], ["get", "capacity"], 200, 6, 2500, 18],
+      "circle-color": "#0891b2", "circle-opacity": 0.85, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
+  }
+}
+function setVis(id, on) { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); }
+function applyView() {
+  const t = view === "traffic";
+  setVis("flow", t && showTraffic);        // TomTom live flow (every street)
+  setVis("traffic-heat", t && showTraffic); // NDW measured sensor heat
+  setVis("parking-dots", !t);
+  renderIncidents();
+}
+
+// setStyle() wipes all sources/layers; re-add them once the new basemap has
+// finished loading. The "idle" event is the reliable "fully settled" signal
+// (isStyleLoaded() can briefly read true on the old style right after setStyle).
+function reapplyData() { addDataLayers(); applyView(); }
+
+// Current-location dot. A DOM marker, so it persists across theme/style swaps.
+function placeLocation(lngLat) {
+  if (!locMarker) {
+    const el = document.createElement("div");
+    el.className = "cc-loc";
+    el.title = "Your location";
+    el.innerHTML = `<svg viewBox="0 0 36 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <radialGradient id="ccPinBody" cx="36%" cy="28%" r="75%">
+          <stop offset="0%" stop-color="#9cc4ff"/><stop offset="45%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#1d4ed8"/>
+        </radialGradient>
+        <linearGradient id="ccPinSheen" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6"/><stop offset="55%" stop-color="#ffffff" stop-opacity="0"/>
+        </linearGradient>
+        <clipPath id="ccPinClip"><circle cx="18" cy="16.5" r="7.6"/></clipPath>
+      </defs>
+      <path d="M18 1.5C9 1.5 2.5 8 2.5 16.5 2.5 27 12.5 34 18 46.5 23.5 34 33.5 27 33.5 16.5 33.5 8 27 1.5 18 1.5Z" fill="url(#ccPinBody)" stroke="#1e40af" stroke-width="0.6"/>
+      <path d="M18 3C10.5 3 5 8.6 5 15.8c0 3.2 1.8 5.9 4.4 7.6C8.6 18 12 12.5 18 11.4c3.4-.6 6.8.2 9 2.4C25.6 7.4 22 3 18 3Z" fill="url(#ccPinSheen)"/>
+      <circle cx="18" cy="16.5" r="7.6" fill="#ffffff"/>
+      <g clip-path="url(#ccPinClip)" fill="#2563eb">
+        <circle cx="18" cy="13.6" r="2.9"/>
+        <path d="M9.8 25c0-4.1 3.7-6.3 8.2-6.3s8.2 2.2 8.2 6.3Z"/>
+      </g>
+    </svg>`;
+    locMarker = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat(lngLat).addTo(map);
+  } else {
+    locMarker.setLngLat(lngLat);
+  }
+}
+
+// Incident markers — a warning triangle (amber) or closure (red). DOM markers so
+// they look nothing like the flow's coloured roads, and they survive theme swaps.
+function repCoord(g) {
+  if (!g) return null;
+  if (g.type === "Point") return g.coordinates;
+  if (g.type === "LineString" && g.coordinates.length) return g.coordinates[Math.floor(g.coordinates.length / 2)];
+  if (g.type === "MultiLineString" && g.coordinates[0] && g.coordinates[0].length) {
+    const s = g.coordinates[0]; return s[Math.floor(s.length / 2)];
+  }
+  return null;
+}
+function incSvg(closed) {
+  const c = closed ? "#dc2626" : "#f59e0b";
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6 22 20.4H2Z" fill="${c}" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/><rect x="11" y="9.2" width="2" height="6" rx="1" fill="#ffffff"/><circle cx="12" cy="17.4" r="1.25" fill="#ffffff"/></svg>`;
+}
+function renderIncidents() {
+  incMarkers.forEach((m) => m.remove());
+  incMarkers = [];
+  if (view !== "traffic" || !showIncidents) return;
+  for (const f of (incidentsGeo.features || [])) {
+    const c = repCoord(f.geometry);
+    if (!c) continue;
+    const p = f.properties;
+    const el = document.createElement("div");
+    el.className = "cc-inc";
+    el.title = p.category || "Incident";
+    el.innerHTML = incSvg(p.closed == 1);
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();   // keep the click off the map, or its closeOnClick shuts the popup instantly
+      const delay = p.delay ? ` · +${Math.round(p.delay / 60)} min` : "";
+      const where = p.road ? ` (${p.road})` : "";
+      incPopup.setLngLat(c)
+        .setHTML(`<strong>${p.closed == 1 ? "⚠ Road closed" : p.category}</strong>${where}<br>${p.desc || ""}${delay}`).addTo(map);
+    });
+    incMarkers.push(new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map));
+  }
+}
+
+function locate(zoom = 14) {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (p) => {
+      const lat = p.coords.latitude, lon = p.coords.longitude;
+      if (!inAms(lat, lon)) return;          // keep the demo focused on Amsterdam
+      currentLoc = [lon, lat];
+      placeLocation(currentLoc);
+      map.flyTo({ center: currentLoc, zoom });
+      renderView();
+    },
+    (err) => console.info("Geolocation unavailable:", err && err.message),
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+  );
+}
+
+map.on("load", async () => {
+  await loadData();
+  addDataLayers(); applyView();
+  map.on("click", "parking-dots", (e) => {
+    const p = e.features[0].properties;
+    new maplibregl.Popup({ closeButton: false, offset: 12 }).setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<strong>${p.name || "Parking"}</strong><br>${p.capacity != null ? p.capacity + " spaces" : ""}`).addTo(map);
+  });
+  map.on("mouseenter", "parking-dots", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "parking-dots", () => map.getCanvas().style.cursor = "");
+  renderView();
+  placeLocation(currentLoc);   // show the indicator immediately (default), then refine
+  locate();                    // prompt for location on open
+  setInterval(refresh, 30000);
+});
+
+async function refresh() {
+  await loadData();
+  if (map.getSource("traffic")) map.getSource("traffic").setData(trafficGeo);
+  if (map.getSource("parking")) map.getSource("parking").setData(parkingGeo);
+  renderIncidents();
+  renderView();
+}
+
+function haversine(aLat, aLon, bLat, bLon) {
+  const R = 6371, d = (x) => x * Math.PI / 180;
+  const s = Math.sin(d(bLat - aLat) / 2) ** 2 + Math.cos(d(aLat)) * Math.cos(d(bLat)) * Math.sin(d(bLon - aLon) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+function nearestParking(n) {
+  const [lon, lat] = currentLoc;
+  return (parkingGeo.features || []).map((f) => ({
+    name: f.properties.name, capacity: f.properties.capacity,
+    lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+    km: haversine(lat, lon, f.geometry.coordinates[1], f.geometry.coordinates[0]),
+  })).sort((a, b) => a.km - b.km).slice(0, n);
+}
+function trafficStats() {
+  const f = (trafficGeo.features || []).filter((x) => x.properties.kind === "ndw");
+  const speeds = f.map((x) => x.properties.speed).filter((s) => s != null);
+  const avg = speeds.length ? Math.round(speeds.reduce((a, b) => a + b, 0) / speeds.length) : null;
+  const congested = f.filter((x) => x.properties.congestion >= 0.6).length;
+  const heavy = f.length ? Math.round(100 * congested / f.length) : 0;
+  return { avg, heavy, count: f.length };
+}
+
+const panel = document.getElementById("panel");
+const muted = "text-neutral-500 dark:text-neutral-400";
+function legendRow(c, l) { return `<div class="flex items-center gap-2 text-sm"><span class="h-3 w-3 rounded-full" style="background:${c}"></span>${l}</div>`; }
+function filterChip(k, label, on) {
+  return `<button data-k="${k}" class="seg flex-1 px-3 py-1.5 rounded-xl text-sm border ${on
+    ? "bg-white dark:bg-white/20 border-white/60 dark:border-white/10 font-medium shadow-sm"
+    : "border-transparent " + muted}">${on ? "●" : "○"} ${label}</button>`;
+}
+function renderTraffic() {
+  const s = trafficStats();
+  panel.innerHTML = `
+    <div class="text-[13px] uppercase tracking-wide ${muted} font-medium mb-1">Live traffic</div>
+    <div class="text-2xl font-semibold tracking-tight mb-3">Amsterdam · all roads</div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="bg-white/60 dark:bg-white/10 rounded-xl p-2.5"><div class="text-xs ${muted}">Avg speed</div><div class="text-lg font-semibold">${s.avg != null ? s.avg + " km/h" : "—"}</div></div>
+      <div class="bg-white/60 dark:bg-white/10 rounded-xl p-2.5"><div class="text-xs ${muted}">Heavy</div><div class="text-lg font-semibold">${s.heavy}%</div></div>
+    </div>
+    <div class="flex gap-2 mb-3" id="layerFilter">${filterChip("traffic", "Traffic", showTraffic)}${filterChip("inc", "Incidents", showIncidents)}</div>
+    <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">${legendRow("#2EAB30", "Free flowing")}${legendRow("#F1BF40", "Slowing down")}${legendRow("#E70704", "Jammed")}<div class="flex items-center gap-2"><span class="text-amber-500">⚠</span> Incident</div></div>
+    <div class="text-xs ${muted} mt-3">${incidentsGeo.features.length} active incident${incidentsGeo.features.length === 1 ? "" : "s"} · live from TomTom</div>`;
+  panel.querySelectorAll("#layerFilter button").forEach((b) => b.onclick = () => {
+    if (b.dataset.k === "traffic") showTraffic = !showTraffic; else showIncidents = !showIncidents;
+    applyView(); renderTraffic();
+  });
+}
+function renderParking() {
+  const near = nearestParking(6);
+  const rows = near.map((g) => `
+    <button class="w-full text-left px-3 py-2 rounded-xl hover:bg-white/70 dark:hover:bg-white/10 transition flex items-center justify-between"
+            onclick="map.flyTo({center:[${g.lon},${g.lat}],zoom:15})">
+      <div><div class="text-sm font-medium leading-tight">${g.name || "Facility"}</div><div class="text-xs ${muted}">${g.capacity != null ? g.capacity + " spaces" : ""}</div></div>
+      <div class="text-xs text-neutral-400">${g.km.toFixed(1)} km</div></button>`).join("");
+  panel.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <div><div class="text-[13px] uppercase tracking-wide ${muted} font-medium">Parking near you</div>
+        <div class="text-2xl font-semibold tracking-tight">${(parkingGeo.features || []).length} facilities</div></div>
+      <button onclick="locate()" class="h-9 w-9 grid place-items-center rounded-xl bg-white/70 dark:bg-white/10 hover:bg-white shadow-sm" title="Use my location">◎</button>
+    </div>
+    <div class="-mx-1 max-h-[260px] overflow-auto">${rows || `<div class="px-3 py-4 text-sm ${muted}">No facilities loaded.</div>`}</div>`;
+}
+
+function renderView() { view === "traffic" ? renderTraffic() : renderParking(); }
+function paintToggle() {
+  document.getElementById("toggle").innerHTML = ["traffic", "parking"].map((v) =>
+    `<button data-view="${v}" class="seg px-3 py-1 rounded-lg capitalize ${v === view ? "font-medium bg-white dark:bg-white/20 shadow-sm" : muted}">${v}</button>`).join("");
+  document.querySelectorAll("#toggle button").forEach((b) => b.onclick = () => {
+    view = b.dataset.view; applyView(); paintToggle();
+    panel.style.opacity = 0; setTimeout(() => { renderView(); panel.style.opacity = 1; }, 120);
+  });
+}
+function paintTheme() {
+  document.getElementById("theme").innerHTML = [["☀ Light", false], ["☾ Dark", true]].map(([label, d]) =>
+    `<button data-dark="${d}" class="seg px-3 py-1 rounded-lg ${d === dark ? "font-medium bg-white dark:bg-white/20 shadow-sm" : muted}">${label}</button>`).join("");
+  document.querySelectorAll("#theme button").forEach((b) => b.onclick = () => setTheme(b.dataset.dark === "true"));
+}
+function setTheme(d) {
+  if (d === dark) return;
+  dark = d;
+  localStorage.setItem("cc-theme", dark ? "dark" : "light");   // remember the choice
+  document.documentElement.classList.toggle("dark", dark);
+  // diff:false forces a clean reload; "idle" fires once the new basemap has fully
+  // loaded & rendered — the reliable moment to re-add our sources/layers.
+  map.setStyle(dark ? DARK : LIGHT, { diff: false });
+  map.once("idle", reapplyData);
+  paintToggle(); paintTheme();
+}
+
+paintToggle(); paintTheme(); renderView();
+</script>
+</body>
+</html>

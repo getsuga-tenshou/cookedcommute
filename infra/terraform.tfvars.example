@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (gitignored) to override defaults. All optional —
+# no secrets are needed (Snowflake holds the warehouse; ADLS uses managed identity).
+# project     = "parkpulse"
+# environment = "dev"
+# location    = "westeurope"
