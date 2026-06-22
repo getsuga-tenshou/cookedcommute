@@ -8,15 +8,15 @@ sources:
     tables:
       - name: traffic_measurements
         description: "Per-site NDW traffic intensity & speed, one row per poll."
-        loaded_at_field: ingested_at
         config:
+          loaded_at_field: ingested_at
           freshness:
             warn_after: { count: 15, period: minute }
             error_after: { count: 60, period: minute }
       - name: parking_snapshots
         description: "Per-facility Amsterdam parking snapshot, one row per poll."
-        loaded_at_field: ingested_at
         config:
+          loaded_at_field: ingested_at
           freshness:
             warn_after: { count: 60, period: minute }
             error_after: { count: 240, period: minute }
