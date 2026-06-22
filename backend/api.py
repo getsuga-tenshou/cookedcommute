@@ -60,7 +60,7 @@ def _query(sql: str) -> list[dict]:
         cur = con.cursor()
         cur.execute(sql)
         cols = [c[0].lower() for c in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
     finally:
         con.close()
 
